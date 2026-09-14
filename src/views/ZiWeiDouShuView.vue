@@ -4,7 +4,7 @@ import {useRoute, useRouter} from "vue-router";
 import {useMessage} from "naive-ui";
 import {api} from "../core/tauri";
 import type {Chart, FlowAnnual, RecordInfo, Star} from "../core/defined";
-import {BRANCHES, STEMS} from "../core/defined";
+import {BRANCHES, STEMS, TIMES} from "../core/defined";
 import {STAR_INTRO} from "../core/starIntro";
 
 const route = useRoute();
@@ -20,10 +20,12 @@ const decadeDist = ref<number | null>(null);
 const flowYear = ref<number | null>(null);
 const flowMonth = ref<number | null>(null);
 const flowDay = ref<number | null>(null);
+const flowHour = ref<number | null>(null);
+const birthLunarMonth = ref<number | null>(null);
+const birthHourIndex = ref<number | null>(null);
 
 const introShow = ref(false);
-const introStar = ref("");
-const introText = ref("");
+const introStar = ref<Star | null>(null);
 
 const fixIdx = (n: number) => ((n % 12) + 12) % 12;
 const stemBranchText = (y: number) => {
@@ -81,8 +83,11 @@ const yearOptions = computed(() => {
     return arr;
 });
 
-const monthOptions = Array.from({length: 12}, (_, i) => ({value: i + 1, label: `农历${i + 1}月`}));
-const dayOptions = Array.from({length: 30}, (_, i) => ({value: i + 1, label: `农历${i + 1}日`}));
+const LUNAR_MONTHS = ["正月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "冬月", "腊月"];
+const monthOptions = LUNAR_MONTHS.map((m, i) => ({value: i + 1, label: m}));
+const LUNAR_DAYS = ["初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十", "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"];
+const dayOptions = LUNAR_DAYS.map((d, i) => ({value: i + 1, label: d}));
+const hourOptions = TIMES.map((t, i) => ({value: i + 1, label: `${t}时`}));
 
 watch(decadePalace, (idx) => {
     if (!chart.value || idx == null) return;
@@ -108,8 +113,11 @@ const flowYearPalace = computed(() => {
 });
 
 const flowMonthPalace = computed(() => {
-    if (flowYearPalace.value == null || flowMonth.value == null) return null;
-    return fixIdx(flowYearPalace.value + flowMonth.value - 1);
+    if (flowYear.value == null || flowMonth.value == null || birthLunarMonth.value == null || birthHourIndex.value == null) return null;
+    const monthBranch = (birthLunarMonth.value + 1) % 12;
+    const monthPalaceIdx = (monthBranch + 10) % 12;
+    const douJun = (monthPalaceIdx + birthHourIndex.value) % 12;
+    return (douJun + flowMonth.value - 1) % 12;
 });
 
 const flowDayPalace = computed(() => {
@@ -117,7 +125,12 @@ const flowDayPalace = computed(() => {
     return fixIdx(flowMonthPalace.value + flowDay.value - 1);
 });
 
-const activeLevel = ref<"decade" | "year" | "month" | "day" | null>(null);
+const flowHourPalace = computed(() => {
+    if (flowDayPalace.value == null || flowHour.value == null) return null;
+    return fixIdx(flowDayPalace.value + flowHour.value - 1);
+});
+
+const activeLevel = ref<"decade" | "year" | "month" | "day" | "hour" | null>(null);
 
 const activePalace = computed(() => {
     switch (activeLevel.value) {
@@ -129,6 +142,8 @@ const activePalace = computed(() => {
             return flowMonthPalace.value;
         case "day":
             return flowDayPalace.value;
+        case "hour":
+            return flowHourPalace.value;
         default:
             return null;
     }
@@ -183,20 +198,15 @@ function onPalaceClick(i: number) {
 }
 
 function openStarIntro(s: Star) {
-    introStar.value = s.name;
-    introText.value = STAR_INTRO[s.name] ?? `暂无「${s.name}」的原文介绍。`;
+    introStar.value = s;
     introShow.value = true;
 }
 
-let pressTimer: number | null = null;
-function onPressStart(s: Star) {
-    pressTimer = window.setTimeout(() => openStarIntro(s), 500);
-}
-function onPressEnd() {
-    if (pressTimer) {
-        clearTimeout(pressTimer);
-        pressTimer = null;
-    }
+function categoryText(c: string | undefined): string {
+    if (c === "major") return "主星";
+    if (c === "minor") return "辅星";
+    if (c === "adjective") return "杂曜";
+    return "";
 }
 
 const flowYearText = computed(() =>
@@ -215,9 +225,12 @@ async function load() {
         const [rec, c] = await api.chartForRecord(id);
         record.value = rec;
         chart.value = c;
+        birthLunarMonth.value = rec.lunarMonth;
+        birthHourIndex.value = rec.timeIndex;
         decadeDist.value = null;
         flowMonth.value = null;
         flowDay.value = null;
+        flowHour.value = null;
     } catch (e) {
         message.error(String(e));
     } finally {
@@ -226,9 +239,21 @@ async function load() {
 }
 
 watch(flowYear, async (y) => {
+    flowMonth.value = null;
+    flowDay.value = null;
+    flowHour.value = null;
     if (y == null || !chart.value) return;
     flow.value = await api.flowAnnual(y);
 }, {immediate: true});
+
+watch(flowMonth, () => {
+    flowDay.value = null;
+    flowHour.value = null;
+});
+
+watch(flowDay, () => {
+    flowHour.value = null;
+});
 
 function goBack() {
     router.push("/recorder");
@@ -265,9 +290,7 @@ onMounted(load);
                 adjective: s.category === 'adjective',
                 small: si >= 6,
               }"
-              @pointerdown="onPressStart(s)"
-              @pointerup="onPressEnd"
-              @pointerleave="onPressEnd"
+              @click="openStarIntro(s)"
               @contextmenu.prevent="openStarIntro(s)"
           >
             <div
@@ -317,47 +340,84 @@ onMounted(load);
       </div>
       <div class="ctrl-block">
         <div class="ctrl-label">流年</div>
-        <n-select
-            v-model:value="flowYear"
-            :options="yearOptions"
-            placeholder="未选择"
-            size="small"
-            style="flex: 1"
-            @update:value="activeLevel = 'year'"
-        />
+        <div class="decade-row" :class="{disabled: decadeDist == null}">
+          <button
+              v-for="opt in yearOptions"
+              :key="opt.value"
+              class="decade-chip"
+              :class="{active: opt.value === flowYear}"
+              :disabled="decadeDist == null"
+              @click="flowYear = opt.value; activeLevel = 'year'"
+          >{{ opt.label }}</button>
+        </div>
       </div>
       <div class="ctrl-block">
         <div class="ctrl-label">流月</div>
-        <n-select
-            v-model:value="flowMonth"
-            :options="monthOptions"
-            placeholder="未选择"
-            size="small"
-            style="flex: 1"
-            @update:value="activeLevel = 'month'"
-        />
+        <div class="decade-row" :class="{disabled: flowYear == null}">
+          <button
+              v-for="opt in monthOptions"
+              :key="opt.value"
+              class="decade-chip"
+              :class="{active: opt.value === flowMonth}"
+              :disabled="flowYear == null"
+              @click="flowMonth = opt.value; activeLevel = 'month'"
+          >{{ opt.label }}</button>
+        </div>
       </div>
       <div class="ctrl-block">
         <div class="ctrl-label">流日</div>
-        <n-select
-            v-model:value="flowDay"
-            :options="dayOptions"
-            placeholder="未选择"
-            size="small"
-            style="flex: 1"
-            @update:value="activeLevel = 'day'"
-        />
+        <div class="decade-row" :class="{disabled: flowMonth == null}">
+          <button
+              v-for="opt in dayOptions"
+              :key="opt.value"
+              class="decade-chip"
+              :class="{active: opt.value === flowDay}"
+              :disabled="flowMonth == null"
+              @click="flowDay = opt.value; activeLevel = 'day'"
+          >{{ opt.label }}</button>
+        </div>
+      </div>
+      <div class="ctrl-block">
+        <div class="ctrl-label">流时</div>
+        <div class="decade-row" :class="{disabled: flowDay == null}">
+          <button
+              v-for="opt in hourOptions"
+              :key="opt.value"
+              class="decade-chip"
+              :class="{active: opt.value === flowHour}"
+              :disabled="flowDay == null"
+              @click="flowHour = opt.value; activeLevel = 'hour'"
+          >{{ opt.label }}</button>
+        </div>
       </div>
     </div>
 
-    <n-modal
-        v-model:show="introShow"
-        preset="card"
-        :title="introStar"
-        style="width: 86%; max-width: 440px"
-    >
-      <div class="intro-text">{{ introText }}</div>
-    </n-modal>
+    <n-drawer v-model:show="introShow" placement="bottom" :height="330">
+      <div class="star-drawer">
+        <div class="sd-head">
+          <span class="sd-name">
+            {{ introStar?.name }}
+            <span class="sd-cat" :class="'sc-' + introStar?.category">{{ categoryText(introStar?.category) }}</span>
+          </span>
+          <span class="sd-close" @click="introShow = false">✕</span>
+        </div>
+        <div class="sd-meta">
+          <div v-if="introStar?.brightness" class="sd-row">
+            <span class="sd-label">庙旺平陷</span>
+            <span class="sd-value">{{ introStar.brightness }}</span>
+          </div>
+          <div v-if="introStar?.mutagen" class="sd-row">
+            <span class="sd-label">四化</span>
+            <span class="sd-value mut-{{ introStar.mutagen }}">{{ introStar.mutagen }}</span>
+          </div>
+          <div class="sd-row">
+            <span class="sd-label">类别</span>
+            <span class="sd-value">{{ categoryText(introStar?.category) }}</span>
+          </div>
+        </div>
+        <div class="sd-intro">{{ STAR_INTRO[introStar?.name ?? ""] ?? `暂无「${introStar?.name}」的原文介绍。` }}</div>
+      </div>
+    </n-drawer>
   </div>
 </template>
 
@@ -670,12 +730,128 @@ onMounted(load);
   border-color: #1e8cd6;
 }
 
-.intro-text {
+.decade-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.decade-row.disabled {
+  opacity: 0.8;
+}
+
+.star-drawer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  box-sizing: border-box;
+}
+
+.sd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sd-name {
+  font-size: 18px;
+  font-weight: 800;
+  color: #7a3f10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sd-cat {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: #fff;
+}
+
+.sd-cat.sc-major {
+  background: #c02a2a;
+}
+
+.sd-cat.sc-minor {
+  background: #6a4fd4;
+}
+
+.sd-cat.sc-adjective {
+  background: #7a7a7a;
+}
+
+.sd-close {
+  font-size: 14px;
+  color: #999;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.sd-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.sd-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sd-label {
+  font-size: 11px;
+  color: #9a7a5a;
+}
+
+.sd-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #4a4035;
+}
+
+.sd-value.mut-禄 {
+  background: #2e9e52;
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 6px;
+}
+
+.sd-value.mut-权 {
+  background: #8a5cd6;
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 6px;
+}
+
+.sd-value.mut-科 {
+  background: #1e8cd6;
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 6px;
+}
+
+.sd-value.mut-忌 {
+  background: #d64545;
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 6px;
+}
+
+.sd-intro {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   font-size: 13px;
   color: #333;
-  line-height: 1.7;
-  max-height: 60vh;
-  overflow-y: auto;
-  white-space: pre-wrap;
+  line-height: 1.75;
+  background: #faf7f0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  box-sizing: border-box;
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {onMounted, ref} from "vue";
+import {computed, nextTick, onMounted, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 import {useMessage} from "naive-ui";
 import {api} from "../core/tauri";
@@ -16,17 +16,108 @@ const saving = ref(false);
 const form = ref({
     name: "",
     gender: "男" as "男" | "女",
-    birthday: null as number | null,
+    birthYear: null as number | null,
+    birthMonth: null as number | null,
+    birthDay: null as number | null,
+    birthHour: null as number | null,
 });
 
-const pad = (n: number) => String(n).padStart(2, "0");
+const pickerShow = ref(false);
+
+const years = Array.from({length: 201}, (_, i) => 1900 + i);
+const hours = Array.from({length: 24}, (_, i) => i + 1);
+
+const OPT_H = 34;
+
+function daysInMonth(year: number, month: number) {
+    return new Date(year, month, 0).getDate();
+}
+
+const dayItems = computed(() => {
+    if (form.value.birthYear == null || form.value.birthMonth == null) return [];
+    const n = daysInMonth(form.value.birthYear, form.value.birthMonth);
+    return Array.from({length: n}, (_, i) => i + 1);
+});
+
+const birthText = computed(() => {
+    const f = form.value;
+    if (f.birthYear == null || f.birthMonth == null || f.birthDay == null || f.birthHour == null) return "";
+    return `${f.birthYear}年${f.birthMonth}月${f.birthDay}日 ${f.birthHour}时`;
+});
+
+const colEls: Record<string, HTMLElement | null> = {
+    year: null,
+    month: null,
+    day: null,
+    hour: null,
+};
+
+type ColKind = "year" | "month" | "day" | "hour";
+
+function colScrollTop(idx: number) {
+    return idx * OPT_H;
+}
+
+function scrollToIndex(kind: ColKind, idx: number) {
+    const el = colEls[kind];
+    if (el) el.scrollTop = colScrollTop(idx);
+}
+
+function pick(kind: ColKind, val: number) {
+    if (kind === "year") form.value.birthYear = val;
+    else if (kind === "month") form.value.birthMonth = val;
+    else if (kind === "day") form.value.birthDay = val;
+    else form.value.birthHour = val;
+    const idx = kind === "year" ? years.indexOf(val) : val - 1;
+    scrollToIndex(kind, Math.max(0, idx));
+}
+
+function onColScroll(kind: ColKind, e: Event) {
+    const el = e.currentTarget as HTMLElement;
+    const idx = Math.round(el.scrollTop / OPT_H);
+    const col = kind === "year" ? years : kind === "month" ? Array.from({length: 12}, (_, i) => i + 1) : kind === "day" ? dayItems.value : hours;
+    const val = col[idx];
+    if (val == null) return;
+    if (kind === "year") form.value.birthYear = val;
+    else if (kind === "month") form.value.birthMonth = val;
+    else if (kind === "day") form.value.birthDay = val;
+    else form.value.birthHour = val;
+}
+
+watch(
+    () => [form.value.birthYear, form.value.birthMonth],
+    () => {
+        if (form.value.birthYear == null || form.value.birthMonth == null) return;
+        const max = daysInMonth(form.value.birthYear, form.value.birthMonth);
+        if (form.value.birthDay != null && form.value.birthDay > max) form.value.birthDay = max;
+    },
+);
+
+function openPicker() {
+    if (form.value.birthYear == null) form.value.birthYear = new Date().getFullYear();
+    if (form.value.birthMonth == null) form.value.birthMonth = 1;
+    if (form.value.birthDay == null) form.value.birthDay = 1;
+    const hh = new Date().getHours();
+    if (form.value.birthHour == null) form.value.birthHour = hh === 0 ? 24 : hh;
+    pickerShow.value = true;
+    nextTick(() => {
+        scrollToIndex("year", years.indexOf(form.value.birthYear!));
+        scrollToIndex("month", form.value.birthMonth! - 1);
+        scrollToIndex("day", form.value.birthDay! - 1);
+        scrollToIndex("hour", Math.max(0, form.value.birthHour! - 1));
+    });
+}
+
+function closePicker() {
+    pickerShow.value = false;
+}
 
 function timeText(index: number) {
     return TIMES[((index % 12) + 12) % 12] + "时";
 }
 
 function solarText(r: RecordInfo) {
-    return `${r.solarYear}-${pad(r.solarMonth)}-${pad(r.solarDay)}`;
+    return `${r.solarYear}年${r.solarMonth}月${r.solarDay}日`;
 }
 
 function yearStemBranch(r: RecordInfo) {
@@ -48,7 +139,14 @@ async function remove(r: RecordInfo) {
 }
 
 function openDrawer() {
-    form.value = {name: "", gender: "男", birthday: null};
+    form.value = {
+        name: "",
+        gender: "男",
+        birthYear: null,
+        birthMonth: null,
+        birthDay: null,
+        birthHour: null,
+    };
     showDrawer.value = true;
 }
 
@@ -57,25 +155,29 @@ async function save() {
         message.warning("请输入姓名");
         return;
     }
-    if (!form.value.gender) {
-        message.warning("请选择性别");
-        return;
-    }
-    if (form.value.birthday == null) {
+    if (form.value.birthYear == null || form.value.birthMonth == null || form.value.birthDay == null || form.value.birthHour == null) {
         message.warning("请选择出生时间");
         return;
     }
-    const d = new Date(form.value.birthday);
-    const hour = d.getHours();
+    const d = new Date(form.value.birthYear, form.value.birthMonth - 1, form.value.birthDay);
+    if (
+        d.getFullYear() !== form.value.birthYear ||
+        d.getMonth() + 1 !== form.value.birthMonth ||
+        d.getDate() !== form.value.birthDay
+    ) {
+        message.warning("出生日期不合法");
+        return;
+    }
+    const hour = form.value.birthHour === 24 ? 0 : form.value.birthHour;
     const timeIndex = Math.floor((hour + 1) / 2) % 12;
     saving.value = true;
     try {
         await api.addRecord({
             name: form.value.name.trim(),
             calendarType: "solar",
-            solarYear: d.getFullYear(),
-            solarMonth: d.getMonth() + 1,
-            solarDay: d.getDate(),
+            solarYear: form.value.birthYear,
+            solarMonth: form.value.birthMonth,
+            solarDay: form.value.birthDay,
             timeIndex,
             gender: form.value.gender,
         });
@@ -125,7 +227,7 @@ onMounted(load);
       </div>
     </div>
 
-    <n-drawer v-model:show="showDrawer" placement="bottom" :height="340">
+    <n-drawer v-model:show="showDrawer" placement="bottom" :height="380">
       <div class="recorder-drawer-title">新增命盘</div>
       <n-form label-placement="left" label-width="auto" class="recorder-add-view">
         <n-form-item label="姓名">
@@ -137,14 +239,10 @@ onMounted(load);
             <n-radio value="女">女</n-radio>
           </n-radio-group>
         </n-form-item>
-        <n-form-item label="出生时间">
-          <n-date-picker
-              v-model:value="form.birthday"
-              type="datetime"
-              :time-picker-props="{format: 'HH:mm'}"
-              style="width: 100%"
-              clearable
-          />
+        <n-form-item label="出生时间" class="birth-item" @click="openPicker">
+          <div class="birth-field" @click.stop="openPicker">
+            <span :class="{ph: !birthText}">{{ birthText || "点击选择年月日时" }}</span>
+          </div>
         </n-form-item>
         <n-form-item>
           <n-button
@@ -156,6 +254,79 @@ onMounted(load);
         </n-form-item>
       </n-form>
     </n-drawer>
+
+    <div v-if="pickerShow" class="dt-picker-mask" @click="closePicker">
+      <div class="dt-picker" @click.stop>
+        <div class="dt-head">
+          <span class="dt-btn-cancel" @click="closePicker">取消</span>
+          <span class="dt-title">选择出生时间</span>
+          <span class="dt-btn-ok" @click="closePicker">确定</span>
+        </div>
+        <div class="dt-cols">
+          <div
+              :ref="(el) => { colEls.year = el as HTMLElement | null }"
+              class="dt-col"
+              @scroll.passive="onColScroll('year', $event)"
+          >
+            <div class="dt-spacer"></div>
+            <div
+                v-for="y in years"
+                :key="y"
+                class="dt-opt"
+                :class="{on: y === form.birthYear}"
+                @click="pick('year', y)"
+            >{{ y }}年</div>
+            <div class="dt-spacer"></div>
+          </div>
+          <div
+              :ref="(el) => { colEls.month = el as HTMLElement | null }"
+              class="dt-col"
+              @scroll.passive="onColScroll('month', $event)"
+          >
+            <div class="dt-spacer"></div>
+            <div
+                v-for="m in 12"
+                :key="m"
+                class="dt-opt"
+                :class="{on: m === form.birthMonth}"
+                @click="pick('month', m)"
+            >{{ m }}月</div>
+            <div class="dt-spacer"></div>
+          </div>
+          <div
+              :ref="(el) => { colEls.day = el as HTMLElement | null }"
+              class="dt-col"
+              @scroll.passive="onColScroll('day', $event)"
+          >
+            <div class="dt-spacer"></div>
+            <div
+                v-for="dd in dayItems"
+                :key="dd"
+                class="dt-opt"
+                :class="{on: dd === form.birthDay}"
+                @click="pick('day', dd)"
+            >{{ dd }}日</div>
+            <div class="dt-spacer"></div>
+          </div>
+          <div
+              :ref="(el) => { colEls.hour = el as HTMLElement | null }"
+              class="dt-col"
+              @scroll.passive="onColScroll('hour', $event)"
+          >
+            <div class="dt-spacer"></div>
+            <div
+                v-for="h in hours"
+                :key="h"
+                class="dt-opt"
+                :class="{on: h === form.birthHour}"
+                @click="pick('hour', h)"
+            >{{ h }}时</div>
+            <div class="dt-spacer"></div>
+          </div>
+          <div class="dt-line"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -246,5 +417,126 @@ onMounted(load);
 
 .recorder-add-view {
   padding: 4px 14px 16px;
+}
+
+.birth-item .n-form-item-control {
+  width: 100%;
+}
+
+.birth-field {
+  width: 100%;
+  border: 1px solid #dcdfe6;
+  border-radius: 3px;
+  height: 34px;
+  line-height: 34px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  font-size: 14px;
+  color: #333;
+  background: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.birth-field .ph {
+  color: #a0a5ad;
+}
+
+.dt-picker-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-end;
+}
+
+.dt-picker {
+  width: 100%;
+  background: #fff;
+  border-radius: 12px 12px 0 0;
+}
+
+.dt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.dt-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+
+.dt-btn-cancel {
+  font-size: 14px;
+  color: #999;
+  cursor: pointer;
+}
+
+.dt-btn-ok {
+  font-size: 14px;
+  color: #1e8cd6;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dt-cols {
+  position: relative;
+  display: flex;
+  height: 204px;
+  overflow: hidden;
+}
+
+.dt-col {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.dt-col::-webkit-scrollbar {
+  display: none;
+}
+
+.dt-spacer {
+  height: 85px;
+  flex-shrink: 0;
+  scroll-snap-align: none;
+}
+
+.dt-opt {
+  height: 34px;
+  line-height: 34px;
+  text-align: center;
+  font-size: 15px;
+  color: #555;
+  scroll-snap-align: center;
+  cursor: pointer;
+}
+
+.dt-opt.on {
+  color: #1e8cd6;
+  font-weight: 700;
+}
+
+.dt-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 85px;
+  height: 34px;
+  border-top: 1px solid #d9ecfb;
+  border-bottom: 1px solid #d9ecfb;
+  background: rgba(232, 244, 253, 0.5);
+  pointer-events: none;
 }
 </style>
