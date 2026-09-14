@@ -4,7 +4,7 @@ import {useRoute, useRouter} from "vue-router";
 import {useMessage} from "naive-ui";
 import {api} from "../core/tauri";
 import type {Chart, FlowAnnual, RecordInfo, Star} from "../core/defined";
-import {BRANCHES, MUTAGEN_BY_STEM, MUTAGEN_NAMES, STEMS} from "../core/defined";
+import {BRANCHES, STEMS} from "../core/defined";
 import {STAR_INTRO} from "../core/starIntro";
 
 const route = useRoute();
@@ -16,10 +16,10 @@ const chart = ref<Chart | null>(null);
 const flow = ref<FlowAnnual | null>(null);
 const loading = ref(true);
 
-const decadeDist = ref(0);
+const decadeDist = ref<number | null>(null);
 const flowYear = ref<number | null>(null);
-const flowMonth = ref(1);
-const flowDay = ref(1);
+const flowMonth = ref<number | null>(null);
+const flowDay = ref<number | null>(null);
 
 const introShow = ref(false);
 const introStar = ref("");
@@ -54,7 +54,9 @@ function indexToDist(i: number): number {
     return forward.value ? fixIdx(i - soulIndex.value) : fixIdx(soulIndex.value - i);
 }
 
-const decadePalace = computed(() => distToIndex(decadeDist.value));
+const decadePalace = computed(() =>
+    decadeDist.value == null ? null : distToIndex(decadeDist.value),
+);
 
 const decadeOptions = computed(() => {
     if (!chart.value) return [];
@@ -69,7 +71,7 @@ const decadeOptions = computed(() => {
 const birthLunarYear = computed(() => chart.value?.birth.lunar.year ?? 0);
 
 const yearOptions = computed(() => {
-    if (!chart.value) return [];
+    if (!chart.value || decadePalace.value == null) return [];
     const p = chart.value.palaces[decadePalace.value];
     const arr: { value: number; label: string }[] = [];
     for (let age = p.decadeStart; age <= p.decadeEnd; age++) {
@@ -83,7 +85,7 @@ const monthOptions = Array.from({length: 12}, (_, i) => ({value: i + 1, label: `
 const dayOptions = Array.from({length: 30}, (_, i) => ({value: i + 1, label: `农历${i + 1}日`}));
 
 watch(decadePalace, (idx) => {
-    if (!chart.value) return;
+    if (!chart.value || idx == null) return;
     const p = chart.value.palaces[idx];
     if (!p) return;
     const first = birthLunarYear.value + p.decadeStart - 1;
@@ -106,61 +108,49 @@ const flowYearPalace = computed(() => {
 });
 
 const flowMonthPalace = computed(() => {
-    if (flowYearPalace.value == null) return null;
+    if (flowYearPalace.value == null || flowMonth.value == null) return null;
     return fixIdx(flowYearPalace.value + flowMonth.value - 1);
 });
 
 const flowDayPalace = computed(() => {
-    if (flowMonthPalace.value == null) return null;
+    if (flowMonthPalace.value == null || flowDay.value == null) return null;
     return fixIdx(flowMonthPalace.value + flowDay.value - 1);
 });
 
-const blueSet = computed(() => {
-    const set = new Set<number>();
-    if (!chart.value) return set;
-    set.add(decadePalace.value);
-    for (const v of [flowYearPalace.value, flowMonthPalace.value, flowDayPalace.value]) {
-        if (v != null) set.add(v);
+const activeLevel = ref<"decade" | "year" | "month" | "day" | null>(null);
+
+const activePalace = computed(() => {
+    switch (activeLevel.value) {
+        case "decade":
+            return decadePalace.value;
+        case "year":
+            return flowYearPalace.value;
+        case "month":
+            return flowMonthPalace.value;
+        case "day":
+            return flowDayPalace.value;
+        default:
+            return null;
     }
-    return set;
 });
 
-const orangeSet = computed(() => {
+const triadSet = computed(() => {
     const set = new Set<number>();
-    if (!chart.value) return set;
-    for (const idx of blueSet.value) {
-        for (const off of [4, 8, 6]) set.add(fixIdx(idx + off));
-    }
-    for (const idx of blueSet.value) set.delete(idx);
+    if (activePalace.value == null) return set;
+    for (const off of [4, 8, 6]) set.add(fixIdx(activePalace.value + off));
     return set;
 });
 
 function palaceClass(i: number) {
-    if (blueSet.value.has(i)) return "hl-blue";
-    if (orangeSet.value.has(i)) return "hl-orange";
+    if (activePalace.value === i) return "hl-violet";
+    if (triadSet.value.has(i)) return "hl-red";
     return "";
 }
 
-const flowByPalace = computed(() => {
-    const map = new Map<number, string[]>();
-    if (!chart.value || flow.value == null || flowYear.value == null) return map;
-    const push = (palace: number, name: string) => {
-        const list = map.get(palace) ?? [];
-        list.push(name);
-        map.set(palace, list);
-    };
-    for (const s of flow.value.stars) push(s.palaceIndex, s.name);
-    const stemIdx = ((flowYear.value - 4) % 10 + 10) % 10;
-    MUTAGEN_BY_STEM[stemIdx].forEach((starName, j) => {
-        const p = chart.value?.palaces.find(
-            (pp) =>
-                pp.major.some((x) => x.name === starName) ||
-                pp.minor.some((x) => x.name === starName),
-        );
-        if (p) push(p.index, `${starName}${MUTAGEN_NAMES[j]}`);
-    });
-    return map;
-});
+function palaceAge(i: number): string {
+    if (flowYear.value == null || i !== flowYearPalace.value) return "";
+    return `${flowYear.value - birthLunarYear.value + 1}岁`;
+}
 
 function allStars(p: { major: Star[]; minor: Star[]; adjective: Star[] }): Star[] {
     return [...p.major, ...p.minor, ...p.adjective];
@@ -189,6 +179,7 @@ function gridPos(i: number) {
 
 function onPalaceClick(i: number) {
     decadeDist.value = indexToDist(i);
+    activeLevel.value = "decade";
 }
 
 function openStarIntro(s: Star) {
@@ -224,9 +215,9 @@ async function load() {
         const [rec, c] = await api.chartForRecord(id);
         record.value = rec;
         chart.value = c;
-        decadeDist.value = 0;
-        flowMonth.value = 1;
-        flowDay.value = 1;
+        decadeDist.value = null;
+        flowMonth.value = null;
+        flowDay.value = null;
     } catch (e) {
         message.error(String(e));
     } finally {
@@ -263,20 +254,17 @@ onMounted(load);
           :class="palaceClass(i - 1)"
           @click="onPalaceClick(i - 1)"
       >
-        <div class="p-head">
-          <span class="p-name">{{ chart.palaces[i - 1].name }}</span>
-          <span class="p-ganzhi">{{ chart.palaces[i - 1].heavenlyStem }}{{ chart.palaces[i - 1].earthlyBranch }}</span>
-          <span class="p-mark">
-            {{ chart.palaces[i - 1].isSoul ? "命" : "" }}{{ chart.palaces[i - 1].isBody ? "身" : "" }}
-          </span>
-        </div>
-        <div class="p-decade">{{ chart.palaces[i - 1].decadeStart }}-{{ chart.palaces[i - 1].decadeEnd }}</div>
         <div class="p-stars">
           <div
               v-for="(s, si) in allStars(chart.palaces[i - 1])"
               :key="s.name"
               class="p-star"
-              :class="{small: si >= 6}"
+              :class="{
+                major: s.category === 'major',
+                minor: s.category === 'minor',
+                adjective: s.category === 'adjective',
+                small: si >= 6,
+              }"
               @pointerdown="onPressStart(s)"
               @pointerup="onPressEnd"
               @pointerleave="onPressEnd"
@@ -290,8 +278,16 @@ onMounted(load);
             >{{ g.ch }}</div>
           </div>
         </div>
-        <div v-if="flowByPalace.has(i - 1)" class="p-flow">
-          {{ flowByPalace.get(i - 1)?.join(" ") }}
+        <span v-if="palaceAge(i - 1)" class="p-age">{{ palaceAge(i - 1) }}</span>
+        <div class="p-foot">
+          <span class="p-ganzhi">{{ chart.palaces[i - 1].heavenlyStem }}{{ chart.palaces[i - 1].earthlyBranch }}</span>
+          <span class="p-decade">{{ chart.palaces[i - 1].decadeStart }}-{{ chart.palaces[i - 1].decadeEnd }}</span>
+          <span class="p-name">
+            {{ chart.palaces[i - 1].name }}
+            <span class="p-mark">
+              {{ chart.palaces[i - 1].isSoul ? "命" : "" }}{{ chart.palaces[i - 1].isBody ? "身" : "" }}
+            </span>
+          </span>
         </div>
       </div>
 
@@ -315,7 +311,7 @@ onMounted(load);
               :key="opt.value"
               class="decade-chip"
               :class="{active: opt.value === decadeDist}"
-              @click="decadeDist = opt.value"
+              @click="decadeDist = opt.value; activeLevel = 'decade'"
           >{{ opt.label }}</button>
         </div>
       </div>
@@ -324,8 +320,10 @@ onMounted(load);
         <n-select
             v-model:value="flowYear"
             :options="yearOptions"
+            placeholder="未选择"
             size="small"
             style="flex: 1"
+            @update:value="activeLevel = 'year'"
         />
       </div>
       <div class="ctrl-block">
@@ -333,8 +331,10 @@ onMounted(load);
         <n-select
             v-model:value="flowMonth"
             :options="monthOptions"
+            placeholder="未选择"
             size="small"
             style="flex: 1"
+            @update:value="activeLevel = 'month'"
         />
       </div>
       <div class="ctrl-block">
@@ -342,8 +342,10 @@ onMounted(load);
         <n-select
             v-model:value="flowDay"
             :options="dayOptions"
+            placeholder="未选择"
             size="small"
             style="flex: 1"
+            @update:value="activeLevel = 'day'"
         />
       </div>
     </div>
@@ -410,32 +412,54 @@ onMounted(load);
   min-height: 0;
 }
 
-.palace.hl-blue {
-  background: #dbeafe;
-  border-color: #93c5fd;
+.palace.hl-violet {
+  background: #e6e4f9;
+  border-color: #b5a9e8;
 }
 
-.palace.hl-orange {
-  background: #fff3dc;
-  border-color: #f6ce8c;
+.palace.hl-red {
+  background: #fdeaea;
+  border-color: #efb1b1;
 }
 
-.p-head {
+.p-foot {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 3px;
-  line-height: 1.15;
+  flex-shrink: 0;
+  border-top: 1px dashed #e8e0cc;
+  margin-top: 2px;
+  padding-top: 2px;
+  line-height: 1.2;
 }
 
 .p-name {
   font-weight: 700;
   font-size: 13px;
   color: #7a4a12;
+  white-space: nowrap;
+  line-height: 1.1;
+}
+
+.p-age {
+  position: absolute;
+  right: 5px;
+  bottom: 22px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #1e8cd6;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 2px;
+  padding: 0 3px;
+  line-height: 1.3;
+  z-index: 1;
 }
 
 .p-ganzhi {
   font-size: 10px;
   color: #8a8070;
+  white-space: nowrap;
 }
 
 .p-mark {
@@ -449,17 +473,19 @@ onMounted(load);
   color: #bb9040;
   font-weight: 600;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .p-stars {
   flex: 1;
   min-height: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 1px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  margin-top: 2px;
+  align-content: flex-start;
+  gap: 2px;
+  overflow: hidden;
+  padding: 2px 0;
 }
 
 .p-star {
@@ -468,6 +494,24 @@ onMounted(load);
   align-items: center;
   flex-shrink: 0;
   line-height: 1.12;
+  border: 1px solid;
+  border-radius: 3px;
+  padding: 1px 3px;
+}
+
+.p-star.major {
+  border-color: #e0a0a0;
+  background: #fdf3f3;
+}
+
+.p-star.minor {
+  border-color: #c3b3e8;
+  background: #f6f3fc;
+}
+
+.p-star.adjective {
+  border-color: #d8d2c4;
+  background: #faf9f5;
 }
 
 .p-star .glyph {
@@ -478,6 +522,10 @@ onMounted(load);
 
 .p-star.small .glyph {
   font-size: 10px;
+}
+
+.p-star.adjective .glyph {
+  font-size: 11px;
 }
 
 .glyph.cat-major {
@@ -519,22 +567,6 @@ onMounted(load);
   background: #d64545;
   color: #fff;
   border-radius: 2px;
-}
-
-.p-flow {
-  position: absolute;
-  right: 3px;
-  bottom: 2px;
-  font-size: 8px;
-  color: #7a5a2a;
-  max-width: 92%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: 2px;
-  padding: 0 2px;
 }
 
 .p-center {
@@ -608,8 +640,16 @@ onMounted(load);
 .decade-row {
   flex: 1;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.decade-row::-webkit-scrollbar {
+  display: none;
 }
 
 .decade-chip {
@@ -621,6 +661,7 @@ onMounted(load);
   color: #666;
   cursor: pointer;
   line-height: 1.2;
+  flex-shrink: 0;
 }
 
 .decade-chip.active {
