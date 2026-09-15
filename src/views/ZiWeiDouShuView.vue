@@ -113,10 +113,9 @@ const flowYearPalace = computed(() => {
 });
 
 const flowMonthPalace = computed(() => {
-    if (flowYear.value == null || flowMonth.value == null || birthLunarMonth.value == null || birthHourIndex.value == null) return null;
-    const monthBranch = (birthLunarMonth.value + 1) % 12;
-    const monthPalaceIdx = (monthBranch + 10) % 12;
-    const douJun = (monthPalaceIdx + birthHourIndex.value) % 12;
+    if (flowYearPalace.value == null || flowMonth.value == null || birthLunarMonth.value == null || birthHourIndex.value == null) return null;
+    const afterReverse = fixIdx(flowYearPalace.value - (birthLunarMonth.value - 1));
+    const douJun = fixIdx(afterReverse + birthHourIndex.value);
     return (douJun + flowMonth.value - 1) % 12;
 });
 
@@ -193,8 +192,65 @@ function gridPos(i: number) {
 }
 
 function onPalaceClick(i: number) {
+    if (decadeDist.value != null && indexToDist(i) === decadeDist.value) {
+        decadeDist.value = null;
+        flowYear.value = null;
+        activeLevel.value = null;
+        return;
+    }
     decadeDist.value = indexToDist(i);
     activeLevel.value = "decade";
+}
+
+function toggleDecade(v: number) {
+    if (decadeDist.value === v) {
+        decadeDist.value = null;
+        flowYear.value = null;
+        activeLevel.value = null;
+        return;
+    }
+    decadeDist.value = v;
+    activeLevel.value = "decade";
+}
+
+function toggleYear(v: number) {
+    if (flowYear.value === v) {
+        flowYear.value = null;
+        activeLevel.value = "decade";
+        return;
+    }
+    flowYear.value = v;
+    activeLevel.value = "year";
+}
+
+function toggleMonth(v: number) {
+    if (flowMonth.value === v) {
+        flowMonth.value = null;
+        activeLevel.value = "year";
+        return;
+    }
+    flowMonth.value = v;
+    activeLevel.value = "month";
+}
+
+function toggleDay(v: number) {
+    if (flowDay.value === v) {
+        flowDay.value = null;
+        activeLevel.value = "month";
+        return;
+    }
+    flowDay.value = v;
+    activeLevel.value = "day";
+}
+
+function toggleHour(v: number) {
+    if (flowHour.value === v) {
+        flowHour.value = null;
+        activeLevel.value = "day";
+        return;
+    }
+    flowHour.value = v;
+    activeLevel.value = "hour";
 }
 
 function openStarIntro(s: Star) {
@@ -334,7 +390,7 @@ onMounted(load);
               :key="opt.value"
               class="decade-chip"
               :class="{active: opt.value === decadeDist}"
-              @click="decadeDist = opt.value; activeLevel = 'decade'"
+              @click="toggleDecade(opt.value)"
           >{{ opt.label }}</button>
         </div>
       </div>
@@ -347,7 +403,7 @@ onMounted(load);
               class="decade-chip"
               :class="{active: opt.value === flowYear}"
               :disabled="decadeDist == null"
-              @click="flowYear = opt.value; activeLevel = 'year'"
+              @click="toggleYear(opt.value)"
           >{{ opt.label }}</button>
         </div>
       </div>
@@ -360,7 +416,7 @@ onMounted(load);
               class="decade-chip"
               :class="{active: opt.value === flowMonth}"
               :disabled="flowYear == null"
-              @click="flowMonth = opt.value; activeLevel = 'month'"
+              @click="toggleMonth(opt.value)"
           >{{ opt.label }}</button>
         </div>
       </div>
@@ -373,7 +429,7 @@ onMounted(load);
               class="decade-chip"
               :class="{active: opt.value === flowDay}"
               :disabled="flowMonth == null"
-              @click="flowDay = opt.value; activeLevel = 'day'"
+              @click="toggleDay(opt.value)"
           >{{ opt.label }}</button>
         </div>
       </div>
@@ -386,13 +442,13 @@ onMounted(load);
               class="decade-chip"
               :class="{active: opt.value === flowHour}"
               :disabled="flowDay == null"
-              @click="flowHour = opt.value; activeLevel = 'hour'"
+              @click="toggleHour(opt.value)"
           >{{ opt.label }}</button>
         </div>
       </div>
     </div>
 
-    <n-drawer v-model:show="introShow" placement="bottom" :height="330">
+    <n-drawer v-model:show="introShow" placement="bottom" :height="300">
       <div class="star-drawer">
         <div class="sd-head">
           <span class="sd-name">
@@ -602,7 +658,9 @@ onMounted(load);
 
 .glyph.cat-bright {
   color: #8a8070;
-  font-weight: 500;
+  font-size: 9px;
+  line-height: 1.4;
+  padding: 1px 0;
 }
 
 .glyph.mut-科 {
@@ -843,8 +901,7 @@ onMounted(load);
 }
 
 .sd-intro {
-  flex: 1;
-  min-height: 0;
+  max-height: 120px;
   overflow-y: auto;
   font-size: 13px;
   color: #333;
