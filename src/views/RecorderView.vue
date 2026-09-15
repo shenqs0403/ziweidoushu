@@ -227,7 +227,7 @@ onMounted(load);
       </div>
     </div>
 
-    <n-drawer v-model:show="showDrawer" placement="bottom" :height="380">
+    <n-drawer v-model:show="showDrawer" placement="bottom" :height="290">
       <div class="recorder-drawer-title">新增命盘</div>
       <n-form label-placement="left" label-width="auto" class="recorder-add-view">
         <n-form-item label="姓名">
