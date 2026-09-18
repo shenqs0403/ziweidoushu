@@ -89,16 +89,9 @@ const LUNAR_DAYS = ["初一", "初二", "初三", "初四", "初五", "初六", 
 const dayOptions = LUNAR_DAYS.map((d, i) => ({value: i + 1, label: d}));
 const hourOptions = TIMES.map((t, i) => ({value: i + 1, label: `${t}时`}));
 
-watch(decadePalace, (idx) => {
-    if (!chart.value || idx == null) return;
-    const p = chart.value.palaces[idx];
-    if (!p) return;
-    const first = birthLunarYear.value + p.decadeStart - 1;
-    const last = first + 9;
-    if (flowYear.value == null || flowYear.value < first || flowYear.value > last) {
-        flowYear.value = first;
-    }
-}, {immediate: true});
+watch(decadePalace, () => {
+    flowYear.value = null;
+});
 
 const flowYearBranchIndex = computed(() => {
     if (flowYear.value == null) return -1;
@@ -695,10 +688,11 @@ onMounted(load);
   border-radius: 6px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   gap: 5px;
-  padding: 6px;
+  padding: 6px 12px;
+  text-align: left;
   box-sizing: border-box;
   min-width: 0;
   min-height: 0;
