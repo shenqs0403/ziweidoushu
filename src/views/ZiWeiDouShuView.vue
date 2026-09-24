@@ -5,6 +5,7 @@ import {useMessage} from "naive-ui";
 import {api} from "../core/tauri";
 import type {Chart, FlowAnnual, RecordInfo, Star} from "../core/defined";
 import {BRANCHES, STEMS, TIMES} from "../core/defined";
+import {MUTAGEN_BY_STEM} from "../core/mutagen";
 import {STAR_INTRO} from "../core/starIntro";
 
 const route = useRoute();
@@ -73,8 +74,9 @@ const decadeOptions = computed(() => {
 const birthLunarYear = computed(() => chart.value?.birth.lunar.year ?? 0);
 
 const yearOptions = computed(() => {
-    if (!chart.value || decadePalace.value == null) return [];
-    const p = chart.value.palaces[decadePalace.value];
+    if (!chart.value) return [];
+    const pIdx = decadePalace.value ?? distToIndex(0);
+    const p = chart.value.palaces[pIdx];
     const arr: { value: number; label: string }[] = [];
     for (let age = p.decadeStart; age <= p.decadeEnd; age++) {
         const y = birthLunarYear.value + (age - 1);
@@ -88,10 +90,6 @@ const monthOptions = LUNAR_MONTHS.map((m, i) => ({value: i + 1, label: m}));
 const LUNAR_DAYS = ["初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十", "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"];
 const dayOptions = LUNAR_DAYS.map((d, i) => ({value: i + 1, label: d}));
 const hourOptions = TIMES.map((t, i) => ({value: i + 1, label: `${t}时`}));
-
-watch(decadePalace, () => {
-    flowYear.value = null;
-});
 
 const flowYearBranchIndex = computed(() => {
     if (flowYear.value == null) return -1;
@@ -171,6 +169,61 @@ function glyphs(s: Star): { ch: string; cls: string }[] {
     return list;
 }
 
+const flowMutagens = computed(() => {
+    const map = new Map<number, Map<string, { ch: string; cls: string }[]>>();
+    if (!chart.value) return map;
+
+    const yearStemIdx = flowYear.value == null ? null : ((flowYear.value - 4) % 10 + 10) % 10;
+    const firstMonthStem = yearStemIdx == null ? null : ((yearStemIdx % 5) * 2 + 2) % 10;
+    const monthStemIdx = firstMonthStem == null || flowMonth.value == null ? null : (firstMonthStem + flowMonth.value - 1) % 10;
+    const dayStemIdx = monthStemIdx == null || flowDay.value == null ? null : (monthStemIdx + flowDay.value - 1) % 10;
+    const ziStemIdx = dayStemIdx == null ? null : ((dayStemIdx % 5) * 2) % 10;
+
+    const levels: { key: string; stem: string | null }[] = [
+        {
+            key: "decade",
+            stem: decadeDist.value == null
+                ? null
+                : chart.value.palaces[distToIndex(decadeDist.value)].heavenlyStem,
+        },
+        {key: "year", stem: yearStemIdx == null ? null : STEMS[yearStemIdx]},
+        {key: "month", stem: monthStemIdx == null ? null : STEMS[monthStemIdx]},
+        {key: "day", stem: dayStemIdx == null ? null : STEMS[dayStemIdx]},
+        {
+            key: "hour",
+            stem: ziStemIdx == null || flowHour.value == null ? null : STEMS[(ziStemIdx + flowHour.value - 1) % 10],
+        },
+    ];
+
+    for (const lv of levels) {
+        if (lv.stem == null) continue;
+        const muts = MUTAGEN_BY_STEM[lv.stem];
+        if (!muts) continue;
+        for (const p of chart.value.palaces) {
+            let inner: Map<string, { ch: string; cls: string }[]> | null = null;
+            for (const s of [...p.major, ...p.minor, ...p.adjective]) {
+                const m = muts[s.name];
+                if (!m) continue;
+                if (!inner) {
+                    inner = new Map();
+                    map.set(p.index, inner);
+                }
+                let arr = inner.get(s.name);
+                if (!arr) {
+                    arr = [];
+                    inner.set(s.name, arr);
+                }
+                arr.push({ch: m, cls: `fmut-${lv.key}`});
+            }
+        }
+    }
+    return map;
+});
+
+function flowMutOf(pIdx: number, name: string): { ch: string; cls: string }[] {
+    return flowMutagens.value.get(pIdx)?.get(name) ?? [];
+}
+
 // 4x4 布局：寅序 index -> (row, col)
 const POS: [number, number][] = [
     [3, 0], [2, 0], [1, 0], [0, 0], // 寅卯辰巳
@@ -203,6 +256,7 @@ function toggleDecade(v: number) {
         return;
     }
     decadeDist.value = v;
+    flowYear.value = null;
     activeLevel.value = "decade";
 }
 
@@ -277,6 +331,7 @@ async function load() {
         birthLunarMonth.value = rec.lunarMonth;
         birthHourIndex.value = rec.timeIndex;
         decadeDist.value = null;
+        flowYear.value = null;
         flowMonth.value = null;
         flowDay.value = null;
         flowHour.value = null;
@@ -348,6 +403,12 @@ onMounted(load);
                 class="glyph"
                 :class="g.cls"
             >{{ g.ch }}</div>
+            <div
+                v-for="(fm, fmi) in flowMutOf(i - 1, s.name)"
+                :key="fmi"
+                class="glyph fmut"
+                :class="fm.cls"
+            >{{ fm.ch }}</div>
           </div>
         </div>
         <span v-if="palaceAge(i - 1)" class="p-age">{{ palaceAge(i - 1) }}</span>
@@ -371,6 +432,13 @@ onMounted(load);
         <div class="pc-line"><span class="pc-label">八字</span>{{ chart.bazi.join(" ") }}</div>
         <div class="pc-line"><span class="pc-label">命主</span>{{ chart.soul }}<span class="pc-sep">身主</span>{{ chart.body }}</div>
         <div class="pc-flow">{{ flowYearText }} · 流年命宫 {{ flowYearPalaceName }}</div>
+        <div class="pc-legend">
+          <span class="lg"><i class="lg-dot lg-decade"></i>大限</span>
+          <span class="lg"><i class="lg-dot lg-year"></i>流年</span>
+          <span class="lg"><i class="lg-dot lg-month"></i>流月</span>
+          <span class="lg"><i class="lg-dot lg-day"></i>流日</span>
+          <span class="lg"><i class="lg-dot lg-hour"></i>流时</span>
+        </div>
       </div>
     </div>
 
@@ -389,13 +457,12 @@ onMounted(load);
       </div>
       <div class="ctrl-block">
         <div class="ctrl-label">流年</div>
-        <div class="decade-row" :class="{disabled: decadeDist == null}">
+        <div class="decade-row">
           <button
               v-for="opt in yearOptions"
               :key="opt.value"
               class="decade-chip"
               :class="{active: opt.value === flowYear}"
-              :disabled="decadeDist == null"
               @click="toggleYear(opt.value)"
           >{{ opt.label }}</button>
         </div>
@@ -680,6 +747,35 @@ onMounted(load);
   border-radius: 2px;
 }
 
+.glyph.fmut {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.1;
+  border-radius: 2px;
+  margin-top: 1px;
+  color: #fff;
+}
+
+.glyph.fmut-decade {
+  background: #e53935;
+}
+
+.glyph.fmut-year {
+  background: #8e24aa;
+}
+
+.glyph.fmut-month {
+  background: #1e88e5;
+}
+
+.glyph.fmut-day {
+  background: #00897b;
+}
+
+.glyph.fmut-hour {
+  background: #43a047;
+}
+
 .p-center {
   grid-row: 2 / 4;
   grid-column: 2 / 4;
@@ -725,6 +821,35 @@ onMounted(load);
   color: #b07a30;
   font-weight: 600;
 }
+
+.pc-legend {
+  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #000;
+}
+
+.lg-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 0;
+  display: inline-block;
+}
+
+.lg-decade { background: #e53935; }
+.lg-year { background: #8e24aa; }
+.lg-month { background: #1e88e5; }
+.lg-day { background: #00897b; }
+.lg-hour { background: #43a047; }
 
 .chart-controls {
   background: #fff;
