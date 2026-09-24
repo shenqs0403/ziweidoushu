@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import {computed, onMounted, ref, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {useRoute, useRouter} from "vue-router";
 import {useMessage} from "naive-ui";
-import {api} from "../core/tauri";
+import {api, type LunarYearInfo} from "../core/tauri";
 import type {Chart, FlowAnnual, RecordInfo, Star} from "../core/defined";
 import {BRANCHES, STEMS, TIMES} from "../core/defined";
 import {MUTAGEN_BY_STEM} from "../core/mutagen";
@@ -22,6 +22,7 @@ const flowYear = ref<number | null>(null);
 const flowMonth = ref<number | null>(null);
 const flowDay = ref<number | null>(null);
 const flowHour = ref<number | null>(null);
+const flowMonthInfo = ref<LunarYearInfo | null>(null);
 const birthLunarMonth = ref<number | null>(null);
 const birthHourIndex = ref<number | null>(null);
 
@@ -83,7 +84,15 @@ const yearOptions = computed(() => {
 });
 
 const LUNAR_MONTHS = ["正月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "冬月", "腊月"];
-const monthOptions = LUNAR_MONTHS.map((m, i) => ({value: i + 1, label: m}));
+const monthOptions = computed<{ value: number; month: number; leap: boolean; label: string }[]>(() => {
+    const leap = flowMonthInfo.value?.leapMonth ?? 0;
+    const arr: { value: number; month: number; leap: boolean; label: string }[] = [];
+    for (let m = 1; m <= 12; m++) {
+        arr.push({value: m, month: m, leap: false, label: LUNAR_MONTHS[m - 1]});
+        if (leap === m) arr.push({value: 100 + m, month: m, leap: true, label: `闰${LUNAR_MONTHS[m - 1]}`});
+    }
+    return arr;
+});
 const LUNAR_DAYS = ["初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十", "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"];
 const dayOptions = LUNAR_DAYS.map((d, i) => ({value: i + 1, label: d}));
 const hourOptions = TIMES.map((t, i) => ({value: i + 1, label: `${t}时`}));
@@ -91,6 +100,11 @@ const hourOptions = TIMES.map((t, i) => ({value: i + 1, label: `${t}时`}));
 const flowYearBranchIndex = computed(() => {
     if (flowYear.value == null) return -1;
     return ((flowYear.value - 4) % 12 + 12) % 12;
+});
+
+const flowMonthBase = computed(() => {
+    if (flowMonth.value == null) return null;
+    return flowMonth.value > 99 ? flowMonth.value - 100 : flowMonth.value;
 });
 
 const flowYearPalace = computed(() => {
@@ -101,10 +115,10 @@ const flowYearPalace = computed(() => {
 });
 
 const flowMonthPalace = computed(() => {
-    if (flowYearPalace.value == null || flowMonth.value == null || birthLunarMonth.value == null || birthHourIndex.value == null) return null;
+    if (flowYearPalace.value == null || flowMonthBase.value == null || birthLunarMonth.value == null || birthHourIndex.value == null) return null;
     const afterReverse = fixIdx(flowYearPalace.value - (birthLunarMonth.value - 1));
     const douJun = fixIdx(afterReverse + birthHourIndex.value);
-    return (douJun + flowMonth.value - 1) % 12;
+    return (douJun + flowMonthBase.value - 1) % 12;
 });
 
 const flowDayPalace = computed(() => {
@@ -173,7 +187,7 @@ const flowMutagens = computed(() => {
 
     const yearStemIdx = flowYear.value == null ? null : ((flowYear.value - 4) % 10 + 10) % 10;
     const firstMonthStem = yearStemIdx == null ? null : ((yearStemIdx % 5) * 2 + 2) % 10;
-    const monthStemIdx = firstMonthStem == null || flowMonth.value == null ? null : (firstMonthStem + flowMonth.value - 1) % 10;
+    const monthStemIdx = firstMonthStem == null || flowMonthBase.value == null ? null : (firstMonthStem + flowMonthBase.value - 1) % 10;
     const dayStemIdx = monthStemIdx == null || flowDay.value == null ? null : (monthStemIdx + flowDay.value - 1) % 10;
     const ziStemIdx = dayStemIdx == null ? null : ((dayStemIdx % 5) * 2) % 10;
 
@@ -342,6 +356,7 @@ watch(flowYear, async (y) => {
     flowMonth.value = null;
     flowDay.value = null;
     flowHour.value = null;
+    flowMonthInfo.value = y == null ? null : await api.lunarYearInfo(y);
     if (y == null || !chart.value) return;
     flow.value = await api.flowAnnual(y);
 }, {immediate: true});
@@ -359,7 +374,54 @@ function goBack() {
     router.push("/recorder");
 }
 
-onMounted(load);
+interface DragState {
+    el: HTMLElement;
+    startX: number;
+    startLeft: number;
+    moved: boolean;
+}
+
+let dragState: DragState | null = null;
+
+function onDecadeRowDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    const row = (e.target as HTMLElement).closest<HTMLElement>(".decade-row");
+    if (!row) return;
+    dragState = {el: row, startX: e.clientX, startLeft: row.scrollLeft, moved: false};
+}
+
+function onWindowMove(e: MouseEvent) {
+    if (!dragState) return;
+    const dx = e.clientX - dragState.startX;
+    if (!dragState.moved && Math.abs(dx) > 4) dragState.moved = true;
+    if (dragState.moved) dragState.el.scrollLeft = dragState.startLeft - dx;
+}
+
+function onWindowUp() {
+    if (dragState?.moved) {
+        const suppress = (ev: MouseEvent) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            ev.stopImmediatePropagation();
+            document.removeEventListener("click", suppress, true);
+        };
+        document.addEventListener("click", suppress, true);
+    }
+    dragState = null;
+}
+
+onMounted(() => {
+    load();
+    document.addEventListener("mousedown", onDecadeRowDown);
+    window.addEventListener("mousemove", onWindowMove);
+    window.addEventListener("mouseup", onWindowUp);
+});
+
+onBeforeUnmount(() => {
+    document.removeEventListener("mousedown", onDecadeRowDown);
+    window.removeEventListener("mousemove", onWindowMove);
+    window.removeEventListener("mouseup", onWindowUp);
+});
 </script>
 
 <template>
@@ -874,6 +936,9 @@ onMounted(load);
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .decade-row::-webkit-scrollbar {

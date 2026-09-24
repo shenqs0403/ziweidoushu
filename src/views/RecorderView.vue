@@ -3,6 +3,7 @@ import {computed, nextTick, onMounted, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 import {useMessage} from "naive-ui";
 import {api} from "../core/tauri";
+import type {LunarYearInfo} from "../core/tauri";
 import type {RecordInfo} from "../core/defined";
 import {TIMES} from "../core/defined";
 
@@ -13,9 +14,13 @@ const records = ref<RecordInfo[]>([]);
 const showDrawer = ref(false);
 const saving = ref(false);
 
+const LUNAR_MONTH_NAMES = ["正月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "冬月", "腊月"];
+const lunarInfo = ref<LunarYearInfo | null>(null);
+
 const form = ref({
     name: "",
     gender: "男" as "男" | "女",
+    calendarType: "solar" as "solar" | "lunar",
     birthYear: null as number | null,
     birthMonth: null as number | null,
     birthDay: null as number | null,
@@ -33,16 +38,43 @@ function daysInMonth(year: number, month: number) {
     return new Date(year, month, 0).getDate();
 }
 
+const monthItems = computed<{ value: number; label: string }[]>(() => {
+    if (form.value.calendarType === "solar") {
+        return Array.from({length: 12}, (_, i) => ({value: i + 1, label: `${i + 1}月`}));
+    }
+    const leap = lunarInfo.value?.leapMonth ?? 0;
+    const arr: { value: number; label: string }[] = [];
+    for (let m = 1; m <= 12; m++) {
+        arr.push({value: m, label: LUNAR_MONTH_NAMES[m - 1]});
+        if (leap === m) arr.push({value: 100 + m, label: `闰${LUNAR_MONTH_NAMES[m - 1]}`});
+    }
+    return arr;
+});
+
 const dayItems = computed(() => {
     if (form.value.birthYear == null || form.value.birthMonth == null) return [];
-    const n = daysInMonth(form.value.birthYear, form.value.birthMonth);
+    if (form.value.calendarType === "solar") {
+        const n = daysInMonth(form.value.birthYear, form.value.birthMonth);
+        return Array.from({length: n}, (_, i) => i + 1);
+    }
+    const info = lunarInfo.value;
+    if (!info) return [];
+    const leap = form.value.birthMonth > 99;
+    const m = leap ? form.value.birthMonth - 100 : form.value.birthMonth;
+    const n = leap ? info.leapMonthDays : info.monthDays[m - 1] ?? 0;
+    if (n <= 0) return [];
     return Array.from({length: n}, (_, i) => i + 1);
 });
 
 const birthText = computed(() => {
     const f = form.value;
     if (f.birthYear == null || f.birthMonth == null || f.birthDay == null || f.birthHour == null) return "";
-    return `${f.birthYear}年${f.birthMonth}月${f.birthDay}日 ${f.birthHour}时`;
+    if (f.calendarType === "solar") {
+        return `${f.birthYear}年${f.birthMonth}月${f.birthDay}日 ${f.birthHour}时`;
+    }
+    const leap = f.birthMonth > 99;
+    const m = leap ? f.birthMonth - 100 : f.birthMonth;
+    return `${f.birthYear}年${leap ? "闰" : ""}${LUNAR_MONTH_NAMES[m - 1]}${f.birthDay}日 ${f.birthHour}时`;
 });
 
 const colEls: Record<string, HTMLElement | null> = {
@@ -63,20 +95,27 @@ function scrollToIndex(kind: ColKind, idx: number) {
     if (el) el.scrollTop = colScrollTop(idx);
 }
 
+function monthItemIndex(val: number) {
+    return monthItems.value.findIndex((x) => x.value === val);
+}
+
 function pick(kind: ColKind, val: number) {
     if (kind === "year") form.value.birthYear = val;
     else if (kind === "month") form.value.birthMonth = val;
     else if (kind === "day") form.value.birthDay = val;
     else form.value.birthHour = val;
-    const idx = kind === "year" ? years.indexOf(val) : val - 1;
+    const idx = kind === "year" ? years.indexOf(val) : kind === "month" ? monthItemIndex(val) : val - 1;
     scrollToIndex(kind, Math.max(0, idx));
 }
 
 function onColScroll(kind: ColKind, e: Event) {
     const el = e.currentTarget as HTMLElement;
     const idx = Math.round(el.scrollTop / OPT_H);
-    const col = kind === "year" ? years : kind === "month" ? Array.from({length: 12}, (_, i) => i + 1) : kind === "day" ? dayItems.value : hours;
-    const val = col[idx];
+    let val: number | undefined;
+    if (kind === "year") val = years[idx];
+    else if (kind === "month") val = monthItems.value[idx]?.value;
+    else if (kind === "day") val = dayItems.value[idx];
+    else val = hours[idx];
     if (val == null) return;
     if (kind === "year") form.value.birthYear = val;
     else if (kind === "month") form.value.birthMonth = val;
@@ -85,11 +124,20 @@ function onColScroll(kind: ColKind, e: Event) {
 }
 
 watch(
-    () => [form.value.birthYear, form.value.birthMonth],
-    () => {
+    () => [form.value.calendarType, form.value.birthYear, form.value.birthMonth],
+    async () => {
+        if (form.value.calendarType === "lunar" && form.value.birthYear != null) {
+            try {
+                lunarInfo.value = await api.lunarYearInfo(form.value.birthYear);
+            } catch {
+                lunarInfo.value = null;
+            }
+        } else {
+            lunarInfo.value = null;
+        }
         if (form.value.birthYear == null || form.value.birthMonth == null) return;
-        const max = daysInMonth(form.value.birthYear, form.value.birthMonth);
-        if (form.value.birthDay != null && form.value.birthDay > max) form.value.birthDay = max;
+        const max = dayItems.value.length;
+        if (form.value.birthDay != null && form.value.birthDay > max) form.value.birthDay = max || null;
     },
 );
 
@@ -102,7 +150,7 @@ function openPicker() {
     pickerShow.value = true;
     nextTick(() => {
         scrollToIndex("year", years.indexOf(form.value.birthYear!));
-        scrollToIndex("month", form.value.birthMonth! - 1);
+        scrollToIndex("month", Math.max(0, monthItemIndex(form.value.birthMonth!)));
         scrollToIndex("day", form.value.birthDay! - 1);
         scrollToIndex("hour", Math.max(0, form.value.birthHour! - 1));
     });
@@ -118,6 +166,12 @@ function timeText(index: number) {
 
 function solarText(r: RecordInfo) {
     return `${r.solarYear}年${r.solarMonth}月${r.solarDay}日`;
+}
+
+function lunarText(r: RecordInfo) {
+    if (r.lunarYear == null || r.lunarMonth == null) return "";
+    const m = r.lunarMonth > 0 ? r.lunarMonth : 1;
+    return `${r.lunarYear}年${r.isLeap ? "闰" : ""}${LUNAR_MONTH_NAMES[m - 1] ?? `${m}月`}${r.lunarDay}日`;
 }
 
 function yearStemBranch(r: RecordInfo) {
@@ -142,11 +196,13 @@ function openDrawer() {
     form.value = {
         name: "",
         gender: "男",
+        calendarType: "solar",
         birthYear: null,
         birthMonth: null,
         birthDay: null,
         birthHour: null,
     };
+    lunarInfo.value = null;
     showDrawer.value = true;
 }
 
@@ -159,28 +215,40 @@ async function save() {
         message.warning("请选择出生时间");
         return;
     }
-    const d = new Date(form.value.birthYear, form.value.birthMonth - 1, form.value.birthDay);
-    if (
-        d.getFullYear() !== form.value.birthYear ||
-        d.getMonth() + 1 !== form.value.birthMonth ||
-        d.getDate() !== form.value.birthDay
-    ) {
-        message.warning("出生日期不合法");
-        return;
-    }
     const hour = form.value.birthHour === 24 ? 0 : form.value.birthHour;
     const timeIndex = Math.floor((hour + 1) / 2) % 12;
     saving.value = true;
     try {
-        await api.addRecord({
-            name: form.value.name.trim(),
-            calendarType: "solar",
-            solarYear: form.value.birthYear,
-            solarMonth: form.value.birthMonth,
-            solarDay: form.value.birthDay,
-            timeIndex,
-            gender: form.value.gender,
-        });
+        const base = {name: form.value.name.trim(), timeIndex, gender: form.value.gender};
+        if (form.value.calendarType === "solar") {
+            const d = new Date(form.value.birthYear, form.value.birthMonth - 1, form.value.birthDay);
+            if (
+                d.getFullYear() !== form.value.birthYear ||
+                d.getMonth() + 1 !== form.value.birthMonth ||
+                d.getDate() !== form.value.birthDay
+            ) {
+                message.warning("出生日期不合法");
+                return;
+            }
+            await api.addRecord({
+                ...base,
+                calendarType: "solar",
+                solarYear: form.value.birthYear,
+                solarMonth: form.value.birthMonth,
+                solarDay: form.value.birthDay,
+            });
+        } else {
+            const leap = form.value.birthMonth > 99;
+            const lm = leap ? form.value.birthMonth - 100 : form.value.birthMonth;
+            await api.addRecord({
+                ...base,
+                calendarType: "lunar",
+                lunarYear: form.value.birthYear,
+                lunarMonth: lm,
+                lunarDay: form.value.birthDay,
+                isLeap: leap,
+            });
+        }
         message.success("保存成功");
         showDrawer.value = false;
         await load();
@@ -220,6 +288,7 @@ onMounted(load);
         <div class="recorder-card-meta">
           <span>{{ r.gender || "-" }}</span>
           <span>{{ solarText(r) }} {{ timeText(r.timeIndex) }}</span>
+          <span v-if="r.calendarType === 'lunar'" class="recorder-lunar">农历 {{ lunarText(r) }}</span>
         </div>
         <div v-if="r.mainStars" class="recorder-card-sub">
           {{ yearStemBranch(r) }} {{ r.fiveElementsClass }} · {{ r.mainStars }}
@@ -237,6 +306,12 @@ onMounted(load);
           <n-radio-group v-model:value="form.gender">
             <n-radio value="男">男</n-radio>
             <n-radio value="女">女</n-radio>
+          </n-radio-group>
+        </n-form-item>
+        <n-form-item label="历法">
+          <n-radio-group v-model:value="form.calendarType">
+            <n-radio value="solar">阳历</n-radio>
+            <n-radio value="lunar">农历</n-radio>
           </n-radio-group>
         </n-form-item>
         <n-form-item label="出生时间" class="birth-item" @click="openPicker">
@@ -285,12 +360,12 @@ onMounted(load);
           >
             <div class="dt-spacer"></div>
             <div
-                v-for="m in 12"
-                :key="m"
+                v-for="mo in monthItems"
+                :key="mo.value"
                 class="dt-opt"
-                :class="{on: m === form.birthMonth}"
-                @click="pick('month', m)"
-            >{{ m }}月</div>
+                :class="{on: mo.value === form.birthMonth}"
+                @click="pick('month', mo.value)"
+            >{{ mo.label }}</div>
             <div class="dt-spacer"></div>
           </div>
           <div
@@ -400,6 +475,10 @@ onMounted(load);
   gap: 14px;
   color: #666;
   font-size: 13px;
+}
+
+.recorder-lunar {
+  color: #8a6d3b;
 }
 
 .recorder-card-sub {

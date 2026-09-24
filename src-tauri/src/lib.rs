@@ -6,7 +6,9 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Sqlite, SqlitePool};
 use tauri::Manager;
 
-use chinese_lunisolar_calendar::{LunisolarDate, SolarDate};
+use chinese_lunisolar_calendar::{
+    LunisolarDate, LunisolarYear, LunarMonth, SolarDate, SolarYear,
+};
 
 use ziwei::{calculate_lunar, flow::FlowAnnual, BirthInput, Chart, LunarInput};
 
@@ -126,6 +128,40 @@ struct Record {
 #[tauri::command]
 fn calculate_chart(input: RecordInput) -> Result<Chart, String> {
     build_chart(&input)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LunarYearInfo {
+    year: u16,
+    /// 闰月 1..=12，无闰月为 0
+    leap_month: u8,
+    /// 正月至腊月各月的天数（index 0..=11）
+    month_days: Vec<u8>,
+    /// 闰月天数，无闰月为 0
+    leap_month_days: u8,
+}
+
+/// 农历某年（年号即农历年）的月信息：闰月及每月天数
+#[tauri::command]
+fn lunar_year_info(year: u16) -> Result<LunarYearInfo, String> {
+    let ly = LunisolarYear::from_solar_year(SolarYear::from_u16(year))
+        .map_err(|_| format!("农历年份超出支持范围: {}", year))?;
+    let mut month_days = Vec::with_capacity(12);
+    for m in 1..=12u8 {
+        let lm = LunarMonth::from_u8_with_leap(m, false).map_err(|_| "月份非法".to_string())?;
+        month_days.push(ly.get_total_days_in_a_month(lm).ok_or("月份天数计算失败")?);
+    }
+    let (leap_month, leap_month_days) = match ly.get_leap_lunar_month() {
+        Some(lm) => (lm.to_u8(), ly.get_total_days_in_a_month(lm).unwrap_or(0)),
+        None => (0, 0),
+    };
+    Ok(LunarYearInfo {
+        year,
+        leap_month,
+        month_days,
+        leap_month_days,
+    })
 }
 
 #[tauri::command]
@@ -318,7 +354,8 @@ pub fn run() {
             list_records,
             delete_record,
             chart_for_record,
-            flow_annual
+            flow_annual,
+            lunar_year_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
