@@ -5787,7 +5787,7 @@ dependencies = [
 
 [[package]]
 name = "ziweidoushu"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "chinese-lunisolar-calendar",
  "serde",
