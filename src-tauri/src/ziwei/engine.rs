@@ -146,9 +146,9 @@ pub fn get_bazi(
     [y, m, d, h]
 }
 
-/// 阳历文本，如 2000-08-16
+/// 阳历文本，如 2000年8月16日
 pub fn solar_text(solar: (u16, u8, u8)) -> String {
-    format!("{:04}-{:02}-{:02}", solar.0, solar.1, solar.2)
+    format!("{}年{}月{}日", solar.0, solar.1, solar.2)
 }
 
 /// 亮度（寅序）

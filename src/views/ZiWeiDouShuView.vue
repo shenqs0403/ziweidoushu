@@ -94,7 +94,17 @@ const monthOptions = computed<{ value: number; month: number; leap: boolean; lab
     return arr;
 });
 const LUNAR_DAYS = ["初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十", "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"];
-const dayOptions = LUNAR_DAYS.map((d, i) => ({value: i + 1, label: d}));
+const flowDayCount = computed(() => {
+    const info = flowMonthInfo.value;
+    if (!info || flowMonth.value == null) return 30;
+    const leap = flowMonth.value > 99;
+    const m = leap ? flowMonth.value - 100 : flowMonth.value;
+    const n = leap ? info.leapMonthDays : info.monthDays[m - 1];
+    return n || 30;
+});
+const dayOptions = computed(() =>
+    Array.from({length: flowDayCount.value}, (_, i) => ({value: i + 1, label: LUNAR_DAYS[i]})),
+);
 const hourOptions = TIMES.map((t, i) => ({value: i + 1, label: `${t}时`}));
 
 const flowYearBranchIndex = computed(() => {

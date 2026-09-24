@@ -31,7 +31,7 @@ fn basic_info() {
     // 命主（命宫地支午）/ 身主（年支辰）
     assert_eq!(c.soul, "破军");
     assert_eq!(c.body, "文昌");
-    assert_eq!(c.lunar_text, "2000年7月17日");
+    assert_eq!(c.lunar_text, "2000年七月十七日");
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn bazi_sample() {
     // 庚辰年 七月
     assert_eq!(c.bazi[0], "庚辰");
     assert_eq!(c.bazi[1], "甲申");
-    assert_eq!(c.solar_text, "2000-08-16");
+    assert_eq!(c.solar_text, "2000年8月16日");
     // 时干 = 五鼠遁(日干) + 时辰；2000-08-16 日柱应满足该关系
     let day = &c.bazi[2];
     let day_stem = super::data::STEMS

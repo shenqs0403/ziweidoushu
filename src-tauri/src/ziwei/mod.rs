@@ -86,6 +86,33 @@ pub struct Chart {
     pub palaces: Vec<Palace>,
 }
 
+const LUNAR_MONTH_CN: [&str; 12] = ["正月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "冬月", "腊月"];
+const CN_DIGITS: [&str; 10] = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+
+/// 农历日数转中文，如 17 -> 十七，2 -> 二
+fn cn_day(n: u8) -> String {
+    match n {
+        1..=9 => CN_DIGITS[n as usize].to_string(),
+        10 => "十".to_string(),
+        11..=19 => format!("十{}", CN_DIGITS[(n - 10) as usize]),
+        20 => "二十".to_string(),
+        21..=29 => format!("二十{}", CN_DIGITS[(n - 20) as usize]),
+        30 => "三十".to_string(),
+        _ => n.to_string(),
+    }
+}
+
+/// 农历年文本，如 2000年二月二日
+fn lunar_text(year: u16, month: u8, day: u8, is_leap: bool) -> String {
+    let m = LUNAR_MONTH_CN[(month - 1).clamp(0, 11) as usize];
+    format!(
+        "{}年{}{}日",
+        year,
+        if is_leap { format!("闰{}", m) } else { m.to_string() },
+        cn_day(day)
+    )
+}
+
 /// 由农历数据起盘。time_index: 子=0 .. 亥=11
 pub fn calculate_lunar(birth: BirthInput) -> Chart {
     let year = birth.lunar.year;
@@ -204,16 +231,7 @@ pub fn calculate_lunar(birth: BirthInput) -> Chart {
         body: body.to_string(),
         time_text: format!("{}时", data::TIMES[time]),
         time_range: data::TIME_RANGES[time].to_string(),
-        lunar_text: format!(
-            "{}年{}月{}日",
-            year,
-            if is_leap {
-                format!("闰{}", month_input)
-            } else {
-                month_input.to_string()
-            },
-            day_input
-        ),
+        lunar_text: lunar_text(year, month_input, day_input, is_leap),
         solar_text,
         bazi,
         palaces,
