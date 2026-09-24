@@ -52,7 +52,10 @@ function distToIndex(d: number): number {
     return forward.value ? fixIdx(soulIndex.value + d) : fixIdx(soulIndex.value - d);
 }
 
-const focusedPalace = ref<number | null>(null);
+function indexToDist(i: number): number {
+    if (soulIndex.value < 0) return i;
+    return forward.value ? fixIdx(i - soulIndex.value) : fixIdx(soulIndex.value - i);
+}
 
 const decadePalace = computed(() =>
     decadeDist.value == null ? null : distToIndex(decadeDist.value),
@@ -120,7 +123,6 @@ const flowHourPalace = computed(() => {
 const activeLevel = ref<"decade" | "year" | "month" | "day" | "hour" | null>(null);
 
 const activePalace = computed(() => {
-    if (focusedPalace.value != null) return focusedPalace.value;
     switch (activeLevel.value) {
         case "decade":
             return decadePalace.value;
@@ -198,10 +200,10 @@ const flowMutagens = computed(() => {
         const muts = MUTAGEN_BY_STEM[lv.stem];
         if (!muts) continue;
         for (const p of chart.value.palaces) {
+            let inner: Map<string, { ch: string; cls: string }[]> | null = null;
             for (const s of [...p.major, ...p.minor, ...p.adjective]) {
                 const m = muts[s.name];
                 if (!m) continue;
-                let inner = map.get(p.index);
                 if (!inner) {
                     inner = new Map();
                     map.set(p.index, inner);
@@ -236,7 +238,14 @@ function gridPos(i: number) {
 }
 
 function onPalaceClick(i: number) {
-    focusedPalace.value = focusedPalace.value === i ? null : i;
+    if (decadeDist.value != null && indexToDist(i) === decadeDist.value) {
+        decadeDist.value = null;
+        flowYear.value = null;
+        activeLevel.value = null;
+        return;
+    }
+    decadeDist.value = indexToDist(i);
+    activeLevel.value = "decade";
 }
 
 function toggleDecade(v: number) {
@@ -246,7 +255,6 @@ function toggleDecade(v: number) {
         activeLevel.value = null;
         return;
     }
-    focusedPalace.value = null;
     decadeDist.value = v;
     flowYear.value = null;
     activeLevel.value = "decade";
@@ -259,7 +267,6 @@ function toggleYear(v: number) {
         return;
     }
     flowYear.value = v;
-    focusedPalace.value = null;
     activeLevel.value = "year";
 }
 
@@ -270,7 +277,6 @@ function toggleMonth(v: number) {
         return;
     }
     flowMonth.value = v;
-    focusedPalace.value = null;
     activeLevel.value = "month";
 }
 
@@ -281,7 +287,6 @@ function toggleDay(v: number) {
         return;
     }
     flowDay.value = v;
-    focusedPalace.value = null;
     activeLevel.value = "day";
 }
 
@@ -292,7 +297,6 @@ function toggleHour(v: number) {
         return;
     }
     flowHour.value = v;
-    focusedPalace.value = null;
     activeLevel.value = "hour";
 }
 
@@ -655,7 +659,7 @@ onMounted(load);
   flex-wrap: wrap;
   align-items: flex-start;
   align-content: flex-start;
-  gap: 2px 0;
+  gap: 2px;
   overflow: hidden;
   padding: 2px 0;
 }
@@ -666,18 +670,23 @@ onMounted(load);
   align-items: center;
   flex-shrink: 0;
   line-height: 1.12;
-  padding: 1px 1px;
+  border: 1px solid;
+  border-radius: 3px;
+  padding: 1px 3px;
 }
 
 .p-star.major {
+  border-color: #e0a0a0;
   background: #fdf3f3;
 }
 
 .p-star.minor {
+  border-color: #c3b3e8;
   background: #f6f3fc;
 }
 
 .p-star.adjective {
+  border-color: #d8d2c4;
   background: #faf9f5;
 }
 
@@ -692,7 +701,7 @@ onMounted(load);
 }
 
 .p-star.adjective .glyph {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .glyph.cat-major {
@@ -748,23 +757,23 @@ onMounted(load);
 }
 
 .glyph.fmut-decade {
-  background: #bf19e8;
+  background: #e53935;
 }
 
 .glyph.fmut-year {
-  background: #5617e8;
+  background: #8e24aa;
 }
 
 .glyph.fmut-month {
-  background: #17bbe8;
+  background: #1e88e5;
 }
 
 .glyph.fmut-day {
-  background: #75e817;
+  background: #00897b;
 }
 
 .glyph.fmut-hour {
-  background: #e89b17;
+  background: #43a047;
 }
 
 .p-center {
@@ -836,11 +845,11 @@ onMounted(load);
   display: inline-block;
 }
 
-.lg-decade { background: #bf19e8; }
-.lg-year { background: #5617e8; }
-.lg-month { background: #17bbe8; }
-.lg-day { background: #75e817; }
-.lg-hour { background: #e89b17; }
+.lg-decade { background: #e53935; }
+.lg-year { background: #8e24aa; }
+.lg-month { background: #1e88e5; }
+.lg-day { background: #00897b; }
+.lg-hour { background: #43a047; }
 
 .chart-controls {
   background: #fff;
