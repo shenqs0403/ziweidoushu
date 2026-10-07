@@ -68,6 +68,7 @@ export interface RecordInfo {
     yearBranch: string;
     fiveElementsClass: string;
     mainStars: string;
+    group: string;
     createdAt: number;
 }
 

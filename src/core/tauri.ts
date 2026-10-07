@@ -13,6 +13,7 @@ export interface AddRecordInput {
     isLeap?: boolean;
     timeIndex: number;
     gender: string;
+    group?: string;
 }
 
 export interface LunarYearInfo {

@@ -7,6 +7,7 @@ import type {Chart, FlowAnnual, RecordInfo, Star} from "../core/defined";
 import {BRANCHES, STEMS, TIMES} from "../core/defined";
 import {MUTAGEN_BY_STEM} from "../core/mutagen";
 import {STAR_INTRO} from "../core/starIntro";
+import {BRIGHTNESS_MEANING, MUTAGEN_MEANING, getComboMeaning} from "../core/starMeaning";
 
 const route = useRoute();
 const router = useRouter();
@@ -332,6 +333,31 @@ function categoryText(c: string | undefined): string {
     return "";
 }
 
+// 获取当前星曜所在宫位的所有星曜名称
+const introStarCombo = computed(() => {
+    if (!introStar.value || !chart.value) return "";
+    // 找到当前星曜所在的宫位
+    for (const p of chart.value.palaces) {
+        const allNames = [...p.major, ...p.minor, ...p.adjective].map((s) => s.name);
+        if (allNames.includes(introStar.value!.name)) {
+            return getComboMeaning(introStar.value!.name, allNames);
+        }
+    }
+    return "";
+});
+
+// 庙旺平陷释义
+const brightnessMeaning = computed(() => {
+    if (!introStar.value?.brightness) return "";
+    return BRIGHTNESS_MEANING[introStar.value.brightness] || "";
+});
+
+// 四化释义
+const mutagenMeaning = computed(() => {
+    if (!introStar.value?.mutagen) return "";
+    return MUTAGEN_MEANING[introStar.value.mutagen] || "";
+});
+
 const flowYearText = computed(() =>
     flowYear.value == null ? "" : `${flowYear.value}年 ${stemBranchText(flowYear.value)}`,
 );
@@ -576,7 +602,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <n-drawer v-model:show="introShow" placement="bottom" :height="300">
+    <n-drawer v-model:show="introShow" placement="bottom" :height="420">
       <div class="star-drawer">
         <div class="sd-head">
           <span class="sd-name">
@@ -599,7 +625,22 @@ onBeforeUnmount(() => {
             <span class="sd-value">{{ categoryText(introStar?.category) }}</span>
           </div>
         </div>
-        <div class="sd-intro">{{ STAR_INTRO[introStar?.name ?? ""] ?? `暂无「${introStar?.name}」的原文介绍。` }}</div>
+        <div v-if="brightnessMeaning" class="sd-section">
+          <div class="sd-section-title">庙旺平陷释义</div>
+          <div class="sd-section-content">{{ brightnessMeaning }}</div>
+        </div>
+        <div v-if="mutagenMeaning" class="sd-section">
+          <div class="sd-section-title">四化释义</div>
+          <div class="sd-section-content">{{ mutagenMeaning }}</div>
+        </div>
+        <div v-if="introStarCombo" class="sd-section">
+          <div class="sd-section-title">星曜组合释义</div>
+          <div class="sd-section-content">{{ introStarCombo }}</div>
+        </div>
+        <div class="sd-section">
+          <div class="sd-section-title">星曜介绍</div>
+          <div class="sd-intro">{{ STAR_INTRO[introStar?.name ?? ""] ?? `暂无「${introStar?.name}」的原文介绍。` }}</div>
+        </div>
       </div>
     </n-drawer>
   </div>
@@ -1083,6 +1124,27 @@ onBeforeUnmount(() => {
   color: #fff;
   border-radius: 3px;
   padding: 0 6px;
+}
+
+.sd-section {
+  margin-bottom: 8px;
+}
+
+.sd-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #7a3f10;
+  margin-bottom: 3px;
+}
+
+.sd-section-content {
+  font-size: 12px;
+  color: #555;
+  line-height: 1.6;
+  background: #f5f0e8;
+  border-radius: 4px;
+  padding: 6px 8px;
+  box-sizing: border-box;
 }
 
 .sd-intro {

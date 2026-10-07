@@ -13,6 +13,9 @@ const message = useMessage();
 const records = ref<RecordInfo[]>([]);
 const showDrawer = ref(false);
 const saving = ref(false);
+const showAbout = ref(false);
+const searchText = ref("");
+const filterGroup = ref("");
 
 const LUNAR_MONTH_NAMES = ["正月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "冬月", "腊月"];
 const lunarInfo = ref<LunarYearInfo | null>(null);
@@ -25,12 +28,35 @@ const form = ref({
     birthMonth: null as number | null,
     birthDay: null as number | null,
     birthHour: null as number | null,
+    group: "",
 });
 
 const pickerShow = ref(false);
 
 const years = Array.from({length: 201}, (_, i) => 1900 + i);
 const hours = Array.from({length: 24}, (_, i) => i + 1);
+
+// 获取所有分组列表
+const allGroups = computed(() => {
+    const groups = new Set<string>();
+    records.value.forEach((r) => {
+        if (r.group) groups.add(r.group);
+    });
+    return Array.from(groups).sort();
+});
+
+// 过滤后的记录列表
+const filteredRecords = computed(() => {
+    let result = records.value;
+    if (filterGroup.value) {
+        result = result.filter((r) => r.group === filterGroup.value);
+    }
+    if (searchText.value.trim()) {
+        const keyword = searchText.value.trim().toLowerCase();
+        result = result.filter((r) => r.name.toLowerCase().includes(keyword));
+    }
+    return result;
+});
 
 const OPT_H = 34;
 
@@ -201,6 +227,7 @@ function openDrawer() {
         birthMonth: null,
         birthDay: null,
         birthHour: null,
+        group: "",
     };
     lunarInfo.value = null;
     showDrawer.value = true;
@@ -219,7 +246,7 @@ async function save() {
     const timeIndex = Math.floor((hour + 1) / 2) % 12;
     saving.value = true;
     try {
-        const base = {name: form.value.name.trim(), timeIndex, gender: form.value.gender};
+        const base = {name: form.value.name.trim(), timeIndex, gender: form.value.gender, group: form.value.group.trim()};
         if (form.value.calendarType === "solar") {
             const d = new Date(form.value.birthYear, form.value.birthMonth - 1, form.value.birthDay);
             if (
@@ -264,19 +291,38 @@ onMounted(load);
   <div class="recorder-page">
     <header class="recorder-header">
       <div class="recorder-title">紫微斗数</div>
-      <n-button type="primary" size="small" @click="openDrawer">新增</n-button>
+      <div class="recorder-header-actions">
+        <n-button text size="small" @click="showAbout = true">关于</n-button>
+        <n-button type="primary" size="small" @click="openDrawer">新增</n-button>
+      </div>
     </header>
+
+    <div class="recorder-search">
+      <n-input v-model:value="searchText" placeholder="搜索姓名" clearable size="small"/>
+      <n-select
+          v-model:value="filterGroup"
+          placeholder="全部分组"
+          clearable
+          size="small"
+          :options="allGroups.map(g => ({label: g, value: g}))"
+          style="width: 120px"
+      />
+    </div>
 
     <div class="recorder-list">
       <div v-if="records.length === 0" class="recorder-empty">暂无记录，点击右上角「新增」开始排盘</div>
+      <div v-else-if="filteredRecords.length === 0" class="recorder-empty">没有匹配的记录</div>
       <div
-          v-for="r in records"
+          v-for="r in filteredRecords"
           :key="r.id"
           class="recorder-card"
           @click="openChart(r)"
       >
         <div class="recorder-card-head">
-          <div class="recorder-card-name">{{ r.name || "未命名" }}</div>
+          <div class="recorder-card-name">
+            {{ r.name || "未命名" }}
+            <span v-if="r.group" class="recorder-group-tag">{{ r.group }}</span>
+          </div>
           <n-button
               text
               type="error"
@@ -296,11 +342,14 @@ onMounted(load);
       </div>
     </div>
 
-    <n-drawer v-model:show="showDrawer" placement="bottom" :height="341">
+    <n-drawer v-model:show="showDrawer" placement="bottom" :height="380">
       <div class="recorder-drawer-title">新增命盘</div>
       <n-form label-placement="left" label-width="auto" class="recorder-add-view">
         <n-form-item label="姓名">
           <n-input v-model:value="form.name" placeholder="输入姓名或标记" @keyup.enter="save"/>
+        </n-form-item>
+        <n-form-item label="分组">
+          <n-input v-model:value="form.group" placeholder="输入分组名称（可选）" @keyup.enter="save"/>
         </n-form-item>
         <n-form-item label="性别">
           <n-radio-group v-model:value="form.gender">
@@ -329,6 +378,31 @@ onMounted(load);
         </n-form-item>
       </n-form>
     </n-drawer>
+
+    <n-modal v-model:show="showAbout" preset="dialog" title="关于" :style="{width: '400px'}">
+      <div class="about-content">
+        <div class="about-row">
+          <span class="about-label">软件名称</span>
+          <span class="about-value">紫微斗数</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">软件版本</span>
+          <span class="about-value">v1.0.3</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">开发者</span>
+          <span class="about-value">Johnson</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">使用技术</span>
+          <span class="about-value">Tauri v2 + Vue 3 + TypeScript + Naive UI + Rust + SQLite</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">AI 版权</span>
+          <span class="about-value">本软件由 AI 辅助开发，算法依据《紫微斗数全书》等古籍整理。</span>
+        </div>
+      </div>
+    </n-modal>
 
     <div v-if="pickerShow" class="dt-picker-mask" @click="closePicker">
       <div class="dt-picker" @click.stop>
@@ -423,10 +497,58 @@ onMounted(load);
   margin-bottom: 12px;
 }
 
+.recorder-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .recorder-title {
   font-size: 20px;
   font-weight: 700;
   color: #333;
+}
+
+.recorder-search {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.recorder-group-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e8cd6;
+  background: #e8f4fd;
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.about-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.about-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.about-label {
+  font-size: 12px;
+  color: #999;
+  font-weight: 600;
+}
+
+.about-value {
+  font-size: 14px;
+  color: #333;
+  line-height: 1.5;
 }
 
 .recorder-list {

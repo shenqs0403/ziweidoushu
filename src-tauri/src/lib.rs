@@ -35,6 +35,8 @@ struct RecordInput {
     time_index: u8,
     /// 男 | 女
     gender: Option<String>,
+    /// 分组名称
+    group: Option<String>,
 }
 
 /// 归一化输入：无论按阳历还是农历输入，都得到 (阳历年月日, 农历数据)
@@ -121,6 +123,8 @@ struct Record {
     year_branch: String,
     five_elements_class: String,
     main_stars: String,
+    #[serde(default)]
+    group: String,
     created_at: i64,
 }
 
@@ -179,14 +183,17 @@ async fn add_record(
     let name = input.name.unwrap_or_default();
     let gender = input.gender.unwrap_or_default();
 
+    let group = input.group.clone().unwrap_or_default();
+
     let id = sqlx::query(
-        "INSERT INTO records (
+        r#"INSERT INTO records (
             name, calendar_type,
             solar_year, solar_month, solar_day,
             lunar_year, lunar_month, lunar_day, is_leap,
             time_index, gender,
-            year_stem, year_branch, five_elements_class, main_stars
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            year_stem, year_branch, five_elements_class, main_stars,
+            "group"
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
     )
     .bind(name)
     .bind(input.calendar_type)
@@ -203,6 +210,7 @@ async fn add_record(
     .bind(&chart.year_branch)
     .bind(&chart.five_elements_class)
     .bind(main_stars(&chart))
+    .bind(group)
     .execute(&state.pool)
     .await
     .map_err(|e| e.to_string())?
@@ -229,6 +237,8 @@ struct RecordRow {
     year_branch: String,
     five_elements_class: String,
     main_stars: String,
+    #[sqlx(default)]
+    group: String,
     created_at: i64,
 }
 
@@ -250,6 +260,7 @@ fn row_to_record(r: RecordRow) -> Record {
         year_branch: r.year_branch,
         five_elements_class: r.five_elements_class,
         main_stars: r.main_stars,
+        group: r.group,
         created_at: r.created_at,
     }
 }
@@ -257,13 +268,13 @@ fn row_to_record(r: RecordRow) -> Record {
 #[tauri::command]
 async fn list_records(state: tauri::State<'_, AppState>) -> Result<Vec<Record>, String> {
     let rows = sqlx::query_as::<Sqlite, RecordRow>(
-        "SELECT id, name, calendar_type,
+        r#"SELECT id, name, calendar_type,
                 solar_year, solar_month, solar_day,
                 lunar_year, lunar_month, lunar_day, is_leap,
                 time_index, gender,
                 year_stem, year_branch, five_elements_class, main_stars,
-                created_at
-         FROM records ORDER BY id DESC",
+                "group", created_at
+         FROM records ORDER BY id DESC"#,
     )
     .fetch_all(&state.pool)
     .await
@@ -288,13 +299,13 @@ async fn chart_for_record(
     id: i64,
 ) -> Result<(Record, Chart), String> {
     let row = sqlx::query_as::<Sqlite, RecordRow>(
-        "SELECT id, name, calendar_type,
+        r#"SELECT id, name, calendar_type,
                 solar_year, solar_month, solar_day,
                 lunar_year, lunar_month, lunar_day, is_leap,
                 time_index, gender,
                 year_stem, year_branch, five_elements_class, main_stars,
-                created_at
-         FROM records WHERE id = ?",
+                "group", created_at
+         FROM records WHERE id = ?"#,
     )
     .bind(id)
     .fetch_optional(&state.pool)
@@ -314,6 +325,7 @@ async fn chart_for_record(
         is_leap: Some(row.is_leap),
         time_index: row.time_index as u8,
         gender: Some(row.gender.clone()),
+        group: Some(row.group.clone()),
     };
 
     let chart = build_chart(&input)?;
