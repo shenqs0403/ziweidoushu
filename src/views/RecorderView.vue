@@ -387,7 +387,7 @@ onMounted(load);
         </div>
         <div class="about-row">
           <span class="about-label">软件版本</span>
-          <span class="about-value">v1.0.3</span>
+          <span class="about-value">v1.0.4</span>
         </div>
         <div class="about-row">
           <span class="about-label">开发者</span>
