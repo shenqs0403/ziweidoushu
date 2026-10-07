@@ -28,7 +28,7 @@ const form = ref({
     birthMonth: null as number | null,
     birthDay: null as number | null,
     birthHour: null as number | null,
-    group: "",
+    group: "默认分组",
 });
 
 const pickerShow = ref(false);
@@ -227,7 +227,7 @@ function openDrawer() {
         birthMonth: null,
         birthDay: null,
         birthHour: null,
-        group: "",
+        group: "默认分组",
     };
     lunarInfo.value = null;
     showDrawer.value = true;
@@ -305,7 +305,7 @@ onMounted(load);
           clearable
           size="small"
           :options="allGroups.map(g => ({label: g, value: g}))"
-          style="width: 120px"
+          style="width: 190px"
       />
     </div>
 
@@ -397,9 +397,17 @@ onMounted(load);
           <span class="about-label">使用技术</span>
           <span class="about-value">Tauri v2 + Vue 3 + TypeScript + Naive UI + Rust + SQLite</span>
         </div>
-        <div class="about-row">
-          <span class="about-label">AI 版权</span>
-          <span class="about-value">本软件由 AI 辅助开发，算法依据《紫微斗数全书》等古籍整理。</span>
+        <div class="info-section">
+          <h3>AI 声明</h3>
+          <p>本软件由 AI 程序辅助开发，可能存在功能缺陷或错误。</p>
+          <p>使用本软件所产生的任何后果由使用者自行承担，开发者不承担任何责任。</p>
+          <p>请勿将本软件用于商业用途或非法用途。</p>
+        </div>
+        <div class="info-section">
+          <h3>风险提示</h3>
+          <p>1. 本软件提供的命理分析结果仅供参考，不构成任何决策建议。</p>
+          <p>2. 用户数据保存在本地，请自行备份重要数据。</p>
+          <p>3. 本软件不保证数据的绝对安全性，请妥善保管个人信息。</p>
         </div>
       </div>
     </n-modal>
@@ -549,6 +557,24 @@ onMounted(load);
   font-size: 14px;
   color: #333;
   line-height: 1.5;
+}
+
+.info-section {
+  margin-top: 12px;
+}
+
+.info-section h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  margin: 0 0 6px 0;
+}
+
+.info-section p {
+  font-size: 13px;
+  color: #555;
+  line-height: 1.6;
+  margin: 0 0 4px 0;
 }
 
 .recorder-list {
